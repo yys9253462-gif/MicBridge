@@ -1,0 +1,12 @@
+# Build outputs
+**/bin/
+**/obj/
+**/build/
+.gradle/
+local.properties
+*.user
+*.suo
+
+# Large release binaries should be distributed via GitHub Releases, not git commit tree
+release/
+*.pdb

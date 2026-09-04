@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<style>
+  :root {
+    --bg-color: #0d1117;
+    --card-bg: #161b22;
+    --border-color: #30363d;
+    --text-primary: #c9d1d9;
+    --text-secondary: #8b949e;
+    --accent-blue: #58a6ff;
+    --accent-green: #3fb950;
+    --accent-purple: #bc8cff;
+    --accent-orange: #d29922;
+  }
+  body {
+    margin: 0;
+    padding: 16px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--text-primary);
+    background: transparent;
+  }
+  .card-container {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    max-width: 780px;
+  }
+  .header-box {
+    background: linear-gradient(135deg, rgba(88,166,255,0.12), rgba(63,185,80,0.08));
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 14px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .title-group h2 {
+    margin: 0;
+    font-size: 18px;
+    color: #f0f6fc;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(63,185,80,0.15);
+    color: var(--accent-green);
+    border: 1px solid rgba(63,185,80,0.3);
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent-green);
+    box-shadow: 0 0 8px var(--accent-green);
+    animation: pulse 1.6s infinite ease-in-out;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.85); }
+  }
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+  .node-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 14px 16px;
+    position: relative;
+    overflow: hidden;
+  }
+  .node-card::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 4px;
+    height: 100%;
+  }
+  .node-android::before { background: var(--accent-green); }
+  .node-pc::before { background: var(--accent-blue); }
+  .node-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #f0f6fc;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .item-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-secondary);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .item-list li span {
+    color: var(--text-primary);
+    font-family: Consolas, monospace;
+  }
+  .mode-row {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 12px 16px;
+  }
+  .mode-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+  }
+  .mode-tags {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .mode-tag {
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    border: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .tag-wifi { background: rgba(88,166,255,0.08); border-color: rgba(88,166,255,0.3); color: var(--accent-blue); }
+  .tag-usb { background: rgba(63,185,80,0.08); border-color: rgba(63,185,80,0.3); color: var(--accent-green); }
+  .tag-bt { background: rgba(188,140,255,0.08); border-color: rgba(188,140,255,0.3); color: var(--accent-purple); }
+</style>
+</head>
+<body>
+<div class="card-container">
+  <div class="header-box">
+    <div class="title-group">
+      <h2>MicBridge 双端自研系统就绪</h2>
+      <div style="font-size: 12px; color: var(--text-secondary); margin-top: 2px;">
+        超低延迟电脑调用手机麦克风系统 · 项目路径: G:\hermes项目目录\MicBridge
+      </div>
+    </div>
+    <div class="status-badge">
+      <div class="status-dot"></div>
+      双端构建成功
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div class="node-card node-android">
+      <div class="node-title">
+        <span>Android 移动采集端 (Kotlin)</span>
+        <span style="font-size: 11px; color: var(--accent-green); font-weight: normal;">API 26-35</span>
+      </div>
+      <ul class="item-list">
+        <li>采集规范：<span>48kHz / Mono / 16-bit PCM</span></li>
+        <li>硬件降噪：<span>VOICE_COMMUNICATION (AEC/NS)</span></li>
+        <li>后台保活：<span>Microphone 前台服务 + 唤醒锁</span></li>
+        <li>帧包规格：<span>10ms 帧 (960B 净荷 + 12B 标准帧头)</span></li>
+      </ul>
+    </div>
+
+    <div class="node-card node-pc">
+      <div class="node-title">
+        <span>PC 虚拟声卡端 (.NET 8.0)</span>
+        <span style="font-size: 11px; color: var(--accent-blue); font-weight: normal;">Windows 10/11</span>
+      </div>
+      <ul class="item-list">
+        <li>音频注入：<span>WASAPI Event-Driven (10ms 缓冲区)</span></li>
+        <li>驱动绑定：<span>CABLE Input (已就绪自动接管)</span></li>
+        <li>抖动控制：<span>Jitter Buffer + RFC 3550 乱序重排</span></li>
+        <li>防静音保护：<span>安装驱动自动还原原系统默认扬声器</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="mode-row">
+    <div class="mode-title">已支持的三大主流连接管道</div>
+    <div class="mode-tags">
+      <div class="mode-tag tag-wifi">
+        <strong>WiFi 局域网</strong>
+        <span>UDP 18888 + 广播信标秒级自动发现 (时延 ~35ms)</span>
+      </div>
+      <div class="mode-tag tag-usb">
+        <strong>USB 有线</strong>
+        <span>AOA 2.0 免开启调试 + ADB 端口反向代理 (时延 ~15ms)</span>
+      </div>
+      <div class="mode-tag tag-bt">
+        <strong>经典蓝牙</strong>
+        <span>RFCOMM SPP 串口流传输 (全频带保真，时延 ~60ms)</span>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

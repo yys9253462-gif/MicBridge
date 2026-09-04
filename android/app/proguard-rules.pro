@@ -1,0 +1,1 @@
+# MicBridge Proguard rules
