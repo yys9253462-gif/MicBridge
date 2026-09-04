@@ -81,6 +81,8 @@ namespace MicBridge.PC.Transports
 
         private async Task ReceiveLoop(CancellationToken ct)
         {
+            var remoteEndpointsSeen = new HashSet<string>();
+
             while (!ct.IsCancellationRequested && _udpClient != null)
             {
                 try
@@ -90,8 +92,27 @@ namespace MicBridge.PC.Transports
                     Interlocked.Increment(ref _packetCounter);
                     Interlocked.Add(ref _byteCounter, data.Length);
 
+                    // Check if it's a PING test packet directly on audio port
+                    if (data.Length >= 14)
+                    {
+                        string text = Encoding.UTF8.GetString(data);
+                        if (text.StartsWith("MICBRIDGE_PING"))
+                        {
+                            byte[] pongResponse = Encoding.UTF8.GetBytes("MICBRIDGE_PONG");
+                            await _udpClient.SendAsync(pongResponse, pongResponse.Length, result.RemoteEndPoint);
+                            OnLog?.Invoke($"[配对成功] 收到来自手机 ({result.RemoteEndPoint.Address}) 的测试信号/音频信号，麦克风可用！");
+                            continue;
+                        }
+                    }
+
                     if (AudioFrameHeader.TryParse(data, 0, data.Length, out var header))
                     {
+                        string clientIp = result.RemoteEndPoint.Address.ToString();
+                        if (remoteEndpointsSeen.Add(clientIp))
+                        {
+                            OnLog?.Invoke($"[配对成功] 收到来自手机 ({clientIp}) 的测试信号/音频信号，麦克风可用！");
+                        }
+
                         int payloadSize = data.Length - AudioFrameHeader.HeaderSize;
                         byte[] pcm = new byte[payloadSize];
                         Buffer.BlockCopy(data, AudioFrameHeader.HeaderSize, pcm, 0, payloadSize);
@@ -120,6 +141,7 @@ namespace MicBridge.PC.Transports
         private async Task DiscoveryLoop(CancellationToken ct)
         {
             byte[] beaconResponse = Encoding.UTF8.GetBytes($"MICBRIDGE_PC|{Environment.MachineName}|{_port}");
+            byte[] pongResponse = Encoding.UTF8.GetBytes("MICBRIDGE_PONG");
 
             while (!ct.IsCancellationRequested && _discoveryClient != null)
             {
@@ -132,6 +154,12 @@ namespace MicBridge.PC.Transports
                         // Reply back to sender with our port & hostname
                         await _discoveryClient.SendAsync(beaconResponse, beaconResponse.Length, result.RemoteEndPoint);
                         OnLog?.Invoke($"[Wi-Fi] Responded to phone discovery request from {result.RemoteEndPoint}");
+                    }
+                    else if (query.Contains("MICBRIDGE_PING"))
+                    {
+                        // Respond to PING connectivity test
+                        await _discoveryClient.SendAsync(pongResponse, pongResponse.Length, result.RemoteEndPoint);
+                        OnLog?.Invoke($"[配对成功] 收到来自手机 ({result.RemoteEndPoint.Address}) 的测试信号/音频信号，麦克风可用！");
                     }
                 }
                 catch (OperationCanceledException) { break; }

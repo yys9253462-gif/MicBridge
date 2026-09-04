@@ -3,32 +3,149 @@ package com.micbridge.android.transport
 import android.content.Context
 import android.net.wifi.WifiManager
 import android.util.Log
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
+import java.net.SocketTimeoutException
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * WiFi UDP 高速极低延迟传输通道
- * 
- * 核心特性：
- * 1. 发送队列解耦采集线程与网络发送线程，保证 10ms 帧准时消费不阻塞 AudioRecord
- * 2. 支持 UDP 广播/组播自动发现 PC 端
- * 3. 监听 PC 端心跳包，自动锁定目标 PC 的 IP 与数据端口
+ * WiFi UDP 高速极低延迟传输通道与局域网发现
  */
 class WifiUdpSender(
     private val context: Context,
-    private var targetHost: String = "255.255.255.255",
-    private var targetPort: Int = 18889,
+    var targetHost: String = "255.255.255.255",
+    var targetPort: Int = 18889,
     private val listenPort: Int = 18888
 ) : ITransportSender {
 
+    data class DiscoveredPc(
+        val name: String,
+        val ip: String,
+        val port: Int
+    )
+
     companion object {
         private const val TAG = "WifiUdpSender"
-        private const val DISCOVERY_MAGIC = "MICBRIDGE_DISCOVER"
-        private const val ACK_MAGIC = "MICBRIDGE_ACK"
+        const val DISCOVERY_MAGIC = "MICBRIDGE_DISCOVER"
+        const val PC_BEACON_PREFIX = "MICBRIDGE_PC|"
+        const val PING_MAGIC = "MICBRIDGE_PING"
+        const val PONG_MAGIC = "MICBRIDGE_PONG"
+        const val DISCOVERY_PORT = 18889
+
+        /**
+         * 静态辅助方法：向局域网广播发现 PC
+         */
+        suspend fun scanDevices(context: Context, timeoutMs: Int = 2000): List<DiscoveredPc> =
+            withContext(Dispatchers.IO) {
+                val results = mutableListOf<DiscoveredPc>()
+                val seen = mutableSetOf<String>()
+                var lock: WifiManager.MulticastLock? = null
+                var scanSocket: DatagramSocket? = null
+
+                try {
+                    val wm = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+                    lock = wm?.createMulticastLock("MicBridgeScanLock")?.apply {
+                        setReferenceCounted(false)
+                        acquire()
+                    }
+
+                    scanSocket = DatagramSocket().apply {
+                        broadcast = true
+                        soTimeout = 400
+                    }
+
+                    val discoverBytes = DISCOVERY_MAGIC.toByteArray(Charsets.UTF_8)
+                    val broadcastAddr = InetAddress.getByName("255.255.255.255")
+                    val discoverPacket = DatagramPacket(discoverBytes, discoverBytes.size, broadcastAddr, DISCOVERY_PORT)
+
+                    // 发送两次广播探测包
+                    scanSocket.send(discoverPacket)
+                    Thread.sleep(80)
+                    scanSocket.send(discoverPacket)
+
+                    val buffer = ByteArray(1024)
+                    val recvPacket = DatagramPacket(buffer, buffer.size)
+                    val startTime = System.currentTimeMillis()
+
+                    while (System.currentTimeMillis() - startTime < timeoutMs) {
+                        try {
+                            scanSocket.receive(recvPacket)
+                            val text = String(recvPacket.data, 0, recvPacket.length, Charsets.UTF_8).trim()
+                            val fromIp = recvPacket.address.hostAddress ?: continue
+
+                            if (text.startsWith(PC_BEACON_PREFIX)) {
+                                // 格式: MICBRIDGE_PC|电脑名|端口
+                                val parts = text.split("|")
+                                val pcName = if (parts.size >= 2 && parts[1].isNotEmpty()) parts[1] else "PC-$fromIp"
+                                val pcPort = if (parts.size >= 3) parts[2].toIntOrNull() ?: DISCOVERY_PORT else DISCOVERY_PORT
+                                val key = "$fromIp:$pcPort"
+                                if (!seen.contains(key)) {
+                                    seen.add(key)
+                                    results.add(DiscoveredPc(name = pcName, ip = fromIp, port = pcPort))
+                                }
+                            }
+                        } catch (e: SocketTimeoutException) {
+                            // 单次接收超时继续循环，直到总时长到达
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Error in scan loop: ${e.message}")
+                            break
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Scan failed: ${e.message}", e)
+                } finally {
+                    try {
+                        scanSocket?.close()
+                    } catch (_: Exception) {}
+                    try {
+                        if (lock?.isHeld == true) lock?.release()
+                    } catch (_: Exception) {}
+                }
+                results
+            }
+
+        /**
+         * 静态辅助方法：测试向指定 host:port 发送 PING 并等待 PONG
+         */
+        suspend fun pingTest(host: String, port: Int, timeoutMs: Int = 1500): Pair<Boolean, Long> =
+            withContext(Dispatchers.IO) {
+                var testSocket: DatagramSocket? = null
+                try {
+                    testSocket = DatagramSocket().apply {
+                        soTimeout = timeoutMs
+                    }
+                    val pingBytes = PING_MAGIC.toByteArray(Charsets.UTF_8)
+                    val targetAddr = InetAddress.getByName(host)
+                    val pingPacket = DatagramPacket(pingBytes, pingBytes.size, targetAddr, port)
+
+                    val startNs = System.nanoTime()
+                    testSocket.send(pingPacket)
+
+                    val buf = ByteArray(256)
+                    val recvPacket = DatagramPacket(buf, buf.size)
+                    testSocket.receive(recvPacket)
+                    val rttMs = (System.nanoTime() - startNs) / 1_000_000
+                    val reply = String(recvPacket.data, 0, recvPacket.length, Charsets.UTF_8).trim()
+
+                    if (reply.contains(PONG_MAGIC)) {
+                        Pair(true, rttMs)
+                    } else {
+                        Pair(false, -1L)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Ping test failed to $host:$port : ${e.message}")
+                    Pair(false, -1L)
+                } finally {
+                    try {
+                        testSocket?.close()
+                    } catch (_: Exception) {}
+                }
+            }
     }
 
     override val type: ITransportSender.Type = ITransportSender.Type.WIFI_UDP
@@ -135,7 +252,7 @@ class WifiUdpSender(
                 curSocket.receive(recvPacket)
 
                 val message = String(recvPacket.data, 0, recvPacket.length, Charsets.UTF_8).trim()
-                if (message.startsWith(ACK_MAGIC) || message.startsWith(DISCOVERY_MAGIC)) {
+                if (message.startsWith(PONG_MAGIC) || message.startsWith(PC_BEACON_PREFIX) || message.startsWith(DISCOVERY_MAGIC)) {
                     // 动态自适应 PC 端 IP 与端口
                     val senderIp = recvPacket.address.hostAddress ?: continue
                     val senderPort = recvPacket.port
